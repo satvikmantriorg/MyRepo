@@ -1,0 +1,375 @@
+global without sharing class CheckAvailOptyConRolePrdFam
+{
+    global static Map<Id,String> OptyRoleMap {get;set;}
+    global static Set<Id> OptyIdMap {get;set;}
+    global static Set<Id> OpptyIdSet;
+    global static Map<Id,String> OptyValidContactRoles;
+    global static Set<String> JobManagerCode;
+    global static Set<String> CareerPageCode;
+    global static Set<String> JMConRole;
+        
+    //Sample Button Code method to display the result in the VF page
+    global pagereference Verify()
+    {
+        if(ApexPages.CurrentPage().getParameters().get('oppid')!=null)
+        {
+            OpptyIdSet = new Set<Id>();
+            OpptyIdSet.add(ApexPages.CurrentPage().getParameters().get('oppid'));
+        }
+        CheckOptyConRoleValidity();
+        return null;
+    }
+    
+    //Get the OpptyId and Missing Roles Map
+    global static Map<Id,String> CheckOptyConRoleValidity(Set<Id> OpptyId)
+    {
+        OpptyIdSet = new Set<Id>();
+        if(OpptyId.size() >0)
+            OpptyIdSet = OpptyId;
+            
+        CheckOptyConRoleValidity();
+        return OptyRoleMap;
+    }
+    
+    //Get the OpptyId and Valid Roles Map which are needed
+    global static Map<Id,String> GetValidOptyConRole(Set<Id> OpptyId)
+    {
+        OpptyIdSet = new Set<Id>();
+        if(OpptyId.size() >0)
+            OpptyIdSet = OpptyId;
+            
+        CheckOptyConRoleValidity();
+        System.debug('OptyValidContactRoles-------'+OptyValidContactRoles);
+        return OptyValidContactRoles;
+    }
+    
+    //Validate Product Provision details
+    global static ProdProvWrapper ValidateProdProvDetails(Set<Id> OpptyId)
+    {
+        OpptyIdSet = new Set<Id>();
+        if(OpptyId.size() >0)
+            OpptyIdSet = OpptyId;
+        
+        //Missing Role Map check--Start--updates OptyRoleMap   
+        CheckOptyConRoleValidity();
+        //Missing Role Map check--End--
+        
+        //Job Manager Count logic--Start--
+        AggregateResult[] ARs
+                        = [SELECT count(Id) myCount,OpportunityId 
+                           from OpportunityLineItem        
+                           Where OpportunityId in: OpptyIdSet and (PricebookEntry.Product2.Family in: JobManagerCode  or PricebookEntry.ProductCode in: JobManagerCode)     
+                           group by OpportunityId having count(Id)>0 order by OpportunityId];
+
+        AggregateResult[] ARConRoles
+                        = [select count(Id) myConCount,Opportunity__c
+                                  from Provision_Information__c
+                                  where Role__c in : JMConRole and
+                                         Opportunity__c in :OpptyIdSet and RecordTypeId='012m00000004IsCAAU' group by Opportunity__c having count(Id)>0 order by Opportunity__c];
+        
+        map<Id,integer> concountMap = new map<Id,integer>();
+        
+        for(AggregateResult arC : ARConRoles){
+            concountMap.put((Id)arC.get('Opportunity__c'), (integer)arC.get('myConCount'));
+        }
+        
+        map<Id,integer> jmcountMap = new map<Id,integer>();
+        
+        for(AggregateResult ar : ARs){
+            if(concountMap.size()>0)
+            {
+                if(concountMap.containsKey((Id)ar.get('OpportunityId')))
+                	if((integer) ar.get('myCount')-concountMap.get((Id)ar.get('OpportunityId'))>0)
+                    	jmcountMap.put((Id)ar.get('OpportunityId'), (integer) ar.get('myCount')-concountMap.get((Id)ar.get('OpportunityId')));
+                else
+                    jmcountMap.put((Id)ar.get('OpportunityId'), (integer) ar.get('myCount'));
+            }
+            else
+                jmcountMap.put((Id)ar.get('OpportunityId'), (integer) ar.get('myCount'));
+        }
+        //Job Manager Count logic--Ends--
+        
+        //Career Page logic --Starts--
+        AggregateResult[] ARCPs
+                    = [SELECT count(Id) myCountCP,OpportunityId 
+                                   from OpportunityLineItem        
+                                   Where OpportunityId in: OpptyIdSet and (PricebookEntry.Product2.Family in: CareerPageCode  or PricebookEntry.ProductCode in: CareerPageCode)     
+                                   group by OpportunityId having count(Id)>0 order by OpportunityId];
+        
+        set<Id> cpNoURLSet = new set<Id>();
+        
+        //add where condition Links__c != null and Links__c != ''
+        Map<Id,Provision_Information__c> linksset = new Map<Id,Provision_Information__c>([select Opportunity__c
+                                  from Provision_Information__c
+                                  where  Links__c != null and Links__c != '' and Opportunity__c in :OpptyIdSet and RecordTypeId='012m00000004IsCAAU'order by Opportunity__c]);
+        
+       for(AggregateResult arcp : ARCPs){
+            if((integer) arcp.get('myCountCP')>0)
+            {
+                if(linksset.size()>0)
+                {
+                    if(!linksset.containskey((Id)arcp.get('OpportunityId')))
+                        cpNoURLSet.add((Id)arcp.get('OpportunityId'));
+                }
+                else
+                    cpNoURLSet.add((Id)arcp.get('OpportunityId'));  
+            }
+        }
+        //Career Page logic --Ends--
+        
+        //Final validation result
+        boolean bSuccess=true;
+        if(OptyRoleMap.size()>0 || jmcountMap.size()>0 || !cpNoURLSet.isEmpty())
+            bSuccess=false;
+        
+        ProdProvWrapper ppWrap = new ProdProvWrapper(OptyRoleMap,jmcountMap,cpNoURLSet,bSuccess);
+        
+        return ppWrap;
+    }
+    
+    //This method calculates the missing role and valid role per product code/family
+    global static Map<Id,String> CheckOptyConRoleValidity()
+    {
+        try
+        {
+            //This custom setting stores both product family/contact roles
+            List<ProductFamilyContactRole__c> ProdFamConRoles =[Select ProductFamilyName__c,ContactRole__c,CareerPage__c,JobManager__c from ProductFamilyContactRole__c];
+            
+            Map<String,String> ProdFamRoleMap = new Map<String,String>();
+            //Custom setting valid roles
+            Set<String> RoleSet = new Set<String>();
+            //Custom setting product family/code to roles map
+            Set<String> ProdFamSet = new Set<String>();
+            //Job manager product code/family set
+            JobManagerCode = new Set<String>();
+            JMConRole = new Set<String>();
+            //Job manager product code/family set
+            CareerPageCode = new Set<String>();
+            
+            if(ProdFamConRoles.size()>0)
+            {
+                for(ProductFamilyContactRole__c field : ProdFamConRoles){
+                        if(field.ContactRole__c.contains(','))
+                        {
+                            String[] strCntrlArray = field.ContactRole__c.split(',');
+                            RoleSet.addAll(strCntrlArray);
+                            if(field.JobManager__c == true)
+                                JMConRole.addAll(strCntrlArray);
+                        }
+                        else
+                        {
+                            RoleSet.add(field.ContactRole__c);
+                            if(field.JobManager__c == true)
+                                JMConRole.add(field.ContactRole__c);
+                        }
+                        
+                        ProdFamSet.add(field.ProductFamilyName__c);
+                        ProdFamRoleMap.put(field.ProductFamilyName__c,field.ContactRole__c);
+                        
+                        if(field.CareerPage__c==true)
+                            CareerPageCode.add(field.ProductFamilyName__c);
+                        
+                        if(field.JobManager__c == true)
+                            JobManagerCode.add(field.ProductFamilyName__c);
+                }
+            }
+              
+            // We want a Map of Opportunity IDs to all associated Contact Roles
+            Map <ID, set <String>> opptyContactRoleMap = new Map <ID, set <String>>();
+            
+            if (OpptyIdSet == null)
+            {
+                OpptyIdSet = new Set<Id>();
+                OpptyIdSet.add(ApexPages.CurrentPage().getParameters().get('oppid'));
+            }
+            
+            // Get the Contact Roles associated with the Opportunities
+             List<AggregateResult> result = [
+                          select Opportunity__c,Role__c, count(Id)
+                          from Provision_Information__c
+                          where Role__c in : RoleSet and
+                                 Opportunity__c in :OpptyIdSet and RecordTypeId='012m00000004IsCAAU' group by Opportunity__c,Role__c order by Opportunity__c];
+             
+             //Update the following to create Opportunity id, contact role map--Comma separated
+             Map<Id,String> OpptyConRoleMap = new Map<Id,String>();
+             if (result.size() > 0) {   
+                 ID previousOpptytID = (Id)result[0].get('Opportunity__c');
+                 String RoleStr='';
+                 for(AggregateResult aggCount : result) {
+                     if ((Id)aggCount.get('Opportunity__c') == previousOpptytID) {
+                         if(!RoleStr.contains((String)aggCount.get('Role__c')))  
+                         {
+                             if(RoleStr!=''){
+                                 RoleStr =RoleStr+' , ';
+                             }
+                             RoleStr = RoleStr + (String)aggCount.get('Role__c');
+                         }  
+                     }
+                     else
+                     {
+                        RoleStr='';
+                        RoleStr = RoleStr + (String)aggCount.get('Role__c');
+                     } 
+                     OpptyConRoleMap.put((Id)aggCount.get('Opportunity__c'),RoleStr);  
+                     previousOpptytID = (Id)aggCount.get('Opportunity__c');     
+                 }
+             }
+             //Opportunity comma separated product family/code query
+             List<AggregateResult> allProdFamList =
+                 [SELECT OpportunityId, PricebookEntry.Product2.Family family,PricebookEntry.ProductCode ProdCode,count(Id) 
+                     from OpportunityLineItem        
+                     Where OpportunityId in: OpptyIdSet and (PricebookEntry.Product2.Family in: ProdFamSet  or PricebookEntry.ProductCode in: ProdFamSet)     
+                     group by OpportunityId, PricebookEntry.Product2.Family,PricebookEntry.ProductCode order by OpportunityId];        
+             
+             //Update the following to create Opportunity id, Product Family/Product Code map--Comma separated
+             Map<Id,String> OpptyProdFamMap = new Map<Id,String>();
+             if (allProdFamList.size() > 0) {   
+                 ID previousOpptyPrdID = (Id)allProdFamList[0].get('OpportunityId');
+                 String ProdFamStr='';
+                 String validContactRoles='';
+                 System.debug('---allProdFamList---'+allProdFamList);
+                 for (AggregateResult nextProduct : allProdFamList) {
+                     if ((Id)nextProduct.get('OpportunityId') == previousOpptyPrdID) {
+                         if(!ProdFamStr.contains((String)nextProduct.get('family')))  
+                         {
+                             if(ProdFamStr!='')
+                                 ProdFamStr = ProdFamStr+'---';
+                             if(ProdFamRoleMap.containsKey((String)nextProduct.get('family')))
+                             {
+                                ProdFamStr = ProdFamStr + (String)nextProduct.get('family')+':'+ProdFamRoleMap.get((String)nextProduct.get('family'));
+                                if(validContactRoles!='')
+                                    validContactRoles = validContactRoles+ ',';
+                                validContactRoles = validContactRoles+ProdFamRoleMap.get((String)nextProduct.get('family'));
+                             }
+                             else if(ProdFamRoleMap.containsKey((String)nextProduct.get('ProdCode')))
+                             {
+                                 if(!ProdFamStr.contains((String)nextProduct.get('ProdCode')))
+                                 {
+                                     ProdFamStr = ProdFamStr + (String)nextProduct.get('ProdCode')+':'+ProdFamRoleMap.get((String)nextProduct.get('ProdCode'));
+                                     if(validContactRoles!='')
+                                         validContactRoles = validContactRoles+ ',';
+                                     validContactRoles = validContactRoles+ProdFamRoleMap.get((String)nextProduct.get('ProdCode'));
+                                 }
+                             }
+                         }  
+                     }
+                     else
+                     {
+                        ProdFamStr='';
+                        validContactRoles='';
+                        if(ProdFamRoleMap.containsKey((String)nextProduct.get('family')))
+                        {
+                             ProdFamStr = ProdFamStr + (String)nextProduct.get('family')+':'+ProdFamRoleMap.get((String)nextProduct.get('family'));
+                             validContactRoles = validContactRoles+ProdFamRoleMap.get((String)nextProduct.get('family'));
+                        }
+                        else if(ProdFamRoleMap.containsKey((String)nextProduct.get('ProdCode')))
+                        {
+                            ProdFamStr = ProdFamStr + (String)nextProduct.get('ProdCode')+':'+ProdFamRoleMap.get((String)nextProduct.get('ProdCode'));
+                            validContactRoles = validContactRoles+ProdFamRoleMap.get((String)nextProduct.get('ProdCode'));
+                        }
+                     }
+                     if(ProdFamStr!='')
+                     {
+                        //Opportunity Product Code/Family, valid contact role map
+                         OpptyProdFamMap.put((Id)nextProduct.get('OpportunityId'),ProdFamStr);
+                         //Opportunity, valid contact role map
+                         OptyValidContactRoles = new Map<Id,String>();
+                         OptyValidContactRoles.put((Id)nextProduct.get('OpportunityId'),validContactRoles);
+                         System.debug('Valid contact roles----------'+validContactRoles);
+                     }
+                        
+                     previousOpptyPrdID = (Id)nextProduct.get('OpportunityId');     
+                 }
+             }
+             
+             //check if the contact role exists, build the opportunity-missing contact roles map
+             set<string> setProdFamRole = new set<string>();
+             set<string> setOptyConRole;
+             Map<Id,String> OpptyMissingRoleMap = new Map<Id,String>();
+             String strMissingRole='';
+             OptyIdMap = new Set<id>();
+             if(OpptyProdFamMap.size()>0)
+             {
+                 system.debug('OpptyProdMap:-----'+OpptyProdFamMap);
+                 for(Id OpptyId : OpptyProdFamMap.keySet()){
+                     strMissingRole='';
+                     String[] strProdFamArray = OpptyProdFamMap.get(OpptyId).split('---');
+                     setProdFamRole=new set<string>();
+                     //Create also OpptyId Vs Valid Roles Map -- this will be used while opening the GUI to default the contact roles
+                     setProdFamRole.addall(strProdFamArray);
+                     for (String ProdFam : setProdFamRole)
+                     {
+                        String[] strProdFamRoleArray = ProdFam.split(':');
+                        System.debug('ProdFamilyRole Array-----------'+strProdFamRoleArray);
+                        if(OpptyConRoleMap.get(OpptyId)!='' && OpptyConRoleMap.get(OpptyId)!=null)
+                        {
+                            setOptyConRole = new set<string>();
+                            if(strProdFamRoleArray[1].contains(','))
+                            {
+                                String[] strOptyConRole = strProdFamRoleArray[1].split(',');
+                                setOptyConRole.addall(strOptyConRole);
+                            }
+                            else
+                                setOptyConRole.add(strProdFamRoleArray[1]);
+                            
+                            System.debug('setOptyConRole--------'+setOptyConRole);
+                            for(String strConRole:setOptyConRole)
+                            {
+                                System.debug('OpptyConRoleMap--------'+OpptyConRoleMap.get(OpptyId));
+                                if(!OpptyConRoleMap.get(OpptyId).contains(strConRole))
+                                {
+                                    if(strMissingRole!='')
+                                        strMissingRole = strMissingRole+' , ';
+                                    strMissingRole=strMissingRole+strConRole;
+                                    //add to a map Opportunity Id, Missing Role
+                                    if(strMissingRole!='')
+                                    {
+                                        OptyIdMap.add(OpptyId);
+                                        OpptyMissingRoleMap.put(OpptyId,strMissingRole);
+                                    }
+                                }
+                            }
+                        }
+                        else
+                        {
+                            strMissingRole='';
+                            strMissingRole=strMissingRole+strProdFamRoleArray[1];
+                            OptyIdMap.add(OpptyId);
+                            OpptyMissingRoleMap.put(OpptyId,strMissingRole);
+                        }
+                     }
+                
+                 }
+             } 
+             OptyRoleMap = new Map<Id,String>();
+             
+             if (OpptyMissingRoleMap.size() > 0)
+                 OptyRoleMap=OpptyMissingRoleMap;
+             System.debug('Final Result Page----'+OptyRoleMap+'-----Final Result Class----'+OpptyMissingRoleMap);
+             return OpptyMissingRoleMap;
+         }
+         catch(Exception e)
+         {
+             System.debug('Error----'+e);
+             ApexPages.Message myMsg = new ApexPages.Message(ApexPages.Severity.ERROR,'An Error Occured ***** '+e.getMessage()+' ******');
+             ApexPages.addMessage(myMsg);
+             
+             return null;
+         }
+         
+    }
+    
+    //Wrapper Class For holding Product validation failure maps
+   global class ProdProvWrapper{  
+        global Set<Id> OCPageNoLink{get;set;}  
+        global boolean bSuccess{get;set;}
+        global Map<Id,Integer> OMissingJMContMap{get;set;}
+        global Map<Id,String> OMissingConRoleMap{get;set;}  
+        global ProdProvWrapper(Map<Id,String> OMissingConRoleMap,Map<Id,Integer> OMissingJMContMap,Set<Id> OCPageNoLink, boolean bSuccess){  
+         this.OMissingConRoleMap = OMissingConRoleMap;
+         this.OMissingJMContMap = OMissingJMContMap;
+         this.OCPageNoLink = OCPageNoLink;
+         this.bSuccess = bSuccess;
+        }  
+   } 
+}
