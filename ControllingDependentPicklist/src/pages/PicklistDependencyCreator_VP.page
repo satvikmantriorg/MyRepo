@@ -1,0 +1,51 @@
+<apex:page controller="PicklistManagement" docType="html-5.0" >
+  
+  <apex:form id="form" >
+  
+  <apex:pageMessages />
+  <apex:actionPoller action="{!checkStatus}" interval="5" rerender="form" rendered="{!NOT(ISNULL(result))}"/>
+  
+  <!--Create block-->
+  <apex:pageBlock id="createblock">
+  <apex:pageblocksection >   
+      <h1>Create Dependent Picklist Field</h1>
+   </apex:pageblocksection>
+   <div align="right"><a target="_new" href="https://cs10.salesforce.com/setup/ui/listCustomSettingsData.apexp?com.salesforce.visualforce.ViewStateCSRF=b3qVMUK3OaFDVS4ZetED.7ug87WrcTDei6NO3UkkJnhy8A4WTa6QPCbZy8pCA.LzgYgVhOSwNYMuCErKnLLHig8C1uZ2yoOyQk9zdcmIK.Qa0EqfLaLACsEhRIstrbskPFJA6BAtxs8lNTeMSbsblh_QTS.CcnWg0wov1F664asqLhTR&com.salesforce.visualforce.ViewStateVersion=201405200935030263&CS_Defn_View%3ACS_View=CS_Defn_View%3ACS_View&CS_Defn_View%3ACS_View%3AtheDetailBlock%3AdetailButtons%3Amanage=Manage&id=a5D&retURL=%2Fsetup%2Fui%2FviewCustomSettings.apexp%3Fid%3D01IJ0000000EwZw">Custom Setting</a>
+   </div>
+  <apex:pageblocksection >
+  <apex:input id="ObjectNameId" label="Object Name" value="{!ObjectName}"/> 
+  <BR/>
+  <apex:input id="ControllingPick" label="Controlling Picklist Field" value="{!ControllingFieldName}"/> 
+  <BR/>
+  <apex:input id="DependentPicklabel" label="Dependent Picklist Label" value="{!DependentFieldLabel}"/> 
+  <apex:input id="DependentPick" label="Dependent Picklist Field" value="{!DependentFieldName}"/>    
+  </apex:pageblocksection>
+  <apex:pageBlockButtons location="bottom">
+   <apex:commandButton action="{!createPicklistField}" value="Create New Dependent Picklist Field"/>
+  </apex:pageBlockButtons>
+  </apex:pageblock>
+  
+  <!--Update Block-->
+  
+  <apex:pageBlock id="updateblock">    
+  <apex:pageblocksection >   
+      <h1>Create Dependent Picklist Field</h1> 
+  </apex:pageblocksection>
+  <div align="right">
+        <a title="Custom Setting Link" target="_new" href="https://cs10.salesforce.com/setup/ui/listCustomSettingsData.apexp?com.salesforce.visualforce.ViewStateCSRF=6nj1AoIRX32dgNjwV_H2rk3IqLY9zOTCBCRGa8h22osPvqVIhHbE0NVakC72NpfOHA7dSNrvzrXXVFgwp7U0bRanoyoOux9wstwGdE2Y5q0I8ozFVqxa7nr2NOb5PMaBCB_1ClDjBM9eBOJL0apONRh2ChB2xvlZDqRDtSmAffMgDUdA&com.salesforce.visualforce.ViewStateVersion=201405200935030263&CS_Defn_View%3ACS_View=CS_Defn_View%3ACS_View&CS_Defn_View%3ACS_View%3AtheDetailBlock%3AdetailButtons%3Amanage=Manage&id=a5E&retURL=%2Fsetup%2Fui%2FviewCustomSettings.apexp%3Fid%3D01IJ0000000Ewa1">Custom Setting</a>
+  </div>
+  <apex:pageblocksection >
+  <apex:input id="ObjectNameId" label="Object Name" value="{!ObjectName}"/> 
+  <BR/>
+  <apex:input id="ControllingPick" label="Controlling Picklist Field" value="{!ControllingFieldName}"/> 
+  <BR/>
+  <apex:input id="DependentPicklabel" label="Dependent Picklist Label" value="{!DependentFieldLabel}"/>
+  <apex:input id="DependentPick" label="Dependent Picklist Field" value="{!DependentFieldName}"/>    
+  </apex:pageblocksection>
+  
+  <apex:pageBlockButtons location="bottom">
+   <apex:commandButton action="{!UpdatePicklistField}" value="Update Picklist Dependency" oncomplete="alert('Updated Successfully');"/>
+  </apex:pageBlockButtons>
+  </apex:pageBlock>
+  </apex:form>
+</apex:page>
